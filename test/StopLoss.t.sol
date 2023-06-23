@@ -16,8 +16,8 @@ import {PoolSwapTest} from "@uniswap/v4-core/contracts/test/PoolSwapTest.sol";
 import {PoolDonateTest} from "@uniswap/v4-core/contracts/test/PoolDonateTest.sol";
 import {Deployers} from "@uniswap/v4-core/test/foundry-tests/utils/Deployers.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
-import {StopLoss} from "../src/Counter.sol";
-import {CounterImplementation} from "../src/implementation/CounterImplementation.sol";
+import {StopLoss} from "../src/StopLoss.sol";
+import {StopLossImplementation} from "../src/implementation/StopLossImplementation.sol";
 
 contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
@@ -41,7 +41,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
 
         // testing environment requires our contract to override `validateHookAddress`
         // well do that via the Implementation contract to avoid deploying the override with the production contract
-        CounterImplementation impl = new CounterImplementation(manager, counter);
+        StopLossImplementation impl = new StopLossImplementation(manager, counter);
         (, bytes32[] memory writes) = vm.accesses(address(impl));
         vm.etch(address(counter), address(impl).code);
         // for each storage key that was written during the hook implementation, copy the value over

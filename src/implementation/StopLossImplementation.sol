@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import {StopLoss} from "../Counter.sol";
+import {StopLoss} from "../StopLoss.sol";
 
 import {BaseHook} from "v4-periphery/BaseHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/contracts/libraries/Hooks.sol";
 
-contract CounterImplementation is StopLoss {
+contract StopLossImplementation is StopLoss {
     constructor(IPoolManager poolManager, StopLoss addressToEtch) StopLoss(poolManager) {
         Hooks.validateHookAddress(addressToEtch, getHooksCalls());
     }
