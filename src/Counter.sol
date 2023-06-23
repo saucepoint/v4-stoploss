@@ -7,7 +7,7 @@ import {BaseHook} from "v4-periphery/BaseHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.sol";
 import {BalanceDelta} from "@uniswap/v4-core/contracts/types/BalanceDelta.sol";
 
-contract Counter is BaseHook {
+contract StopLoss is BaseHook {
     uint256 public beforeSwapCount;
     uint256 public afterSwapCount;
 

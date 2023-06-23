@@ -16,14 +16,14 @@ import {PoolSwapTest} from "@uniswap/v4-core/contracts/test/PoolSwapTest.sol";
 import {PoolDonateTest} from "@uniswap/v4-core/contracts/test/PoolDonateTest.sol";
 import {Deployers} from "@uniswap/v4-core/test/foundry-tests/utils/Deployers.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
-import {Counter} from "../src/Counter.sol";
+import {StopLoss} from "../src/Counter.sol";
 import {CounterImplementation} from "../src/implementation/CounterImplementation.sol";
 
-contract CounterTest is Test, Deployers, GasSnapshot {
+contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    Counter counter = Counter(
+    StopLoss counter = StopLoss(
         address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG))
     );
     PoolManager manager;
@@ -77,7 +77,7 @@ contract CounterTest is Test, Deployers, GasSnapshot {
         token1.approve(address(swapRouter), 100 ether);
     }
 
-    function testCounterHooks() public {
+    function testStopLossHooks() public {
         assertEq(counter.beforeSwapCount(), 0);
         assertEq(counter.afterSwapCount(), 0);
         
