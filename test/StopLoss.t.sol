@@ -23,7 +23,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss counter = StopLoss(
+    StopLoss hook = StopLoss(
         address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG))
     );
     PoolManager manager;
@@ -41,19 +41,19 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
 
         // testing environment requires our contract to override `validateHookAddress`
         // well do that via the Implementation contract to avoid deploying the override with the production contract
-        StopLossImplementation impl = new StopLossImplementation(manager, counter);
+        StopLossImplementation impl = new StopLossImplementation(manager, hook);
         (, bytes32[] memory writes) = vm.accesses(address(impl));
-        vm.etch(address(counter), address(impl).code);
+        vm.etch(address(hook), address(impl).code);
         // for each storage key that was written during the hook implementation, copy the value over
         unchecked {
             for (uint256 i = 0; i < writes.length; i++) {
                 bytes32 slot = writes[i];
-                vm.store(address(counter), slot, vm.load(address(impl), slot));
+                vm.store(address(hook), slot, vm.load(address(impl), slot));
             }
         }
 
         // Create the pool
-        poolKey = IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(counter));
+        poolKey = IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(hook));
         poolId = PoolId.toId(poolKey);
         manager.initialize(poolKey, SQRT_RATIO_1_1);
 
@@ -78,8 +78,8 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     }
 
     function testStopLossHooks() public {
-        assertEq(counter.beforeSwapCount(), 0);
-        assertEq(counter.afterSwapCount(), 0);
+        assertEq(hook.beforeSwapCount(), 0);
+        assertEq(hook.afterSwapCount(), 0);
         
         // Perform a test swap //
         IPoolManager.SwapParams memory params =
@@ -95,7 +95,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         );
         // ------------------- //
         
-        assertEq(counter.beforeSwapCount(), 1);
-        assertEq(counter.afterSwapCount(), 1);
+        assertEq(hook.beforeSwapCount(), 1);
+        assertEq(hook.afterSwapCount(), 1);
     }
 }
