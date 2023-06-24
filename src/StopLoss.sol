@@ -9,8 +9,9 @@ import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.s
 import {PoolId} from "@uniswap/v4-core/contracts/libraries/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/contracts/types/BalanceDelta.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
+import {UniV4UserHook} from "./UniV4UserHook.sol";
 
-contract StopLoss is BaseHook, ERC1155 {
+contract StopLoss is UniV4UserHook, ERC1155 {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
@@ -29,7 +30,7 @@ contract StopLoss is BaseHook, ERC1155 {
         bool zeroForOne;
     }
 
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+    constructor(IPoolManager _poolManager) UniV4UserHook(_poolManager) {}
 
     function getHooksCalls() public pure override returns (Hooks.Calls memory) {
         return Hooks.Calls({
