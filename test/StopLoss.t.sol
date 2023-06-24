@@ -110,9 +110,50 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         int24 tick = 0;
         uint256 amount = 100e18;
         bool zeroForOne = true;
+
+        uint256 balanceBefore = token0.balanceOf(address(this));
+        token0.approve(address(hook), amount);
+
+        // place the stop loss position to sell 100 tokens at tick 0
         hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+        uint256 balanceAfter = token0.balanceOf(address(this));
+        assertEq(balanceBefore - balanceAfter, amount);
 
         uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
         assertEq(stopLossAmt, amount);
+
+        // contract received a receipt token
+        uint256 tokenId = hook.getTokenId(poolKey, tick, zeroForOne);
+        assertEq(tokenId != 0, true);
+        uint256 receiptBal = hook.balanceOf(address(this), tokenId);
+        assertEq(receiptBal, amount);
+    }
+
+    function test_stopLossExecute_zeroForOne() public {
+        int24 tick = 0;
+        uint256 amount = 100e18;
+        bool zeroForOne = true;
+
+        token0.approve(address(hook), amount);
+        hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+
+        // Perform a test swap //
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: SQRT_RATIO_1_2});
+
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
+
+        swapRouter.swap(poolKey, params, testSettings);
+        // ------------------- //
+
+        // stoploss should be executed
+        uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
+        assertEq(stopLossAmt, 0);
+
+        // receipt tokens are redeemable for token1 (token0 was sold in the stop loss)
+        uint256 tokenId = hook.getTokenId(poolKey, tick, zeroForOne);
+        uint256 redeemable = hook.claimable(address(this), tokenId);
+        assertEq(redeemable, token1.balanceOf(address(this)));
     }
 }
