@@ -23,6 +23,7 @@ contract StopLoss is UniV4UserHook, ERC1155 {
 
     // TODO: populate on token minting
     mapping(uint256 tokenId => TokenIdData) public tokenIdIndex;
+    mapping(uint256 tokenId => bool) public tokenIdExists;
 
     struct TokenIdData {
         IPoolManager.PoolKey poolKey;
@@ -67,7 +68,17 @@ contract StopLoss is UniV4UserHook, ERC1155 {
     // -- Stop Loss User Facing Functions -- //
     function placeStopLoss(IPoolManager.PoolKey calldata poolKey, int24 tickLower, uint256 amountIn, bool zeroForOne)
         external
-    {}
+    {
+        stopLossPositions[poolKey.toId()][tickLower][zeroForOne] += amountIn;
+
+        // mint the receipt token
+        uint256 tokenId = getTokenId(poolKey, tickLower, zeroForOne);
+        if (!tokenIdExists[tokenId]) {
+            tokenIdExists[tokenId] = true;
+            tokenIdIndex[tokenId] = TokenIdData({poolKey: poolKey, tickLower: tickLower, zeroForOne: zeroForOne});
+        }
+        _mint(msg.sender, tokenId, amountIn, "");
+    }
 
     // TODO: implement, is out of scope for the hackathon
     function killStopLoss() external {}
@@ -79,7 +90,7 @@ contract StopLoss is UniV4UserHook, ERC1155 {
     }
 
     function getTokenId(IPoolManager.PoolKey calldata poolKey, int24 tickLower, bool zeroForOne)
-        external
+        public
         pure
         returns (uint256)
     {
