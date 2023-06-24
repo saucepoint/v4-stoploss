@@ -23,20 +23,29 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss hook = StopLoss(
-        address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG))
-    );
+    StopLoss hook = StopLoss(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG)));
     PoolManager manager;
     PoolModifyPositionTest modifyPositionRouter;
     PoolSwapTest swapRouter;
+    TestERC20 _tokenA;
+    TestERC20 _tokenB;
     TestERC20 token0;
     TestERC20 token1;
     IPoolManager.PoolKey poolKey;
     bytes32 poolId;
 
     function setUp() public {
-        token0 = new TestERC20(2**128);
-        token1 = new TestERC20(2**128);
+        _tokenA = new TestERC20(2**128);
+        _tokenB = new TestERC20(2**128);
+
+        if (address(_tokenA) < address(_tokenB)) {
+            token0 = _tokenA;
+            token1 = _tokenB;
+        } else {
+            token0 = _tokenB;
+            token1 = _tokenA;
+        }
+
         manager = new PoolManager(500000);
 
         // testing environment requires our contract to override `validateHookAddress`
@@ -53,7 +62,8 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         }
 
         // Create the pool
-        poolKey = IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(hook));
+        poolKey =
+            IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(hook));
         poolId = PoolId.toId(poolKey);
         manager.initialize(poolKey, SQRT_RATIO_1_1);
 
@@ -80,22 +90,70 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     function testStopLossHooks() public {
         assertEq(hook.beforeSwapCount(), 0);
         assertEq(hook.afterSwapCount(), 0);
-        
+
         // Perform a test swap //
         IPoolManager.SwapParams memory params =
             IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: SQRT_RATIO_1_2});
 
         PoolSwapTest.TestSettings memory testSettings =
             PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
-        
-        swapRouter.swap(
-            poolKey,
-            params,
-            testSettings
-        );
+
+        swapRouter.swap(poolKey, params, testSettings);
         // ------------------- //
-        
+
         assertEq(hook.beforeSwapCount(), 1);
         assertEq(hook.afterSwapCount(), 1);
+    }
+
+    // Place/open a stop loss position
+    function test_place() public {
+        int24 tick = 0;
+        uint256 amount = 100e18;
+        bool zeroForOne = true;
+
+        uint256 balanceBefore = token0.balanceOf(address(this));
+        token0.approve(address(hook), amount);
+
+        // place the stop loss position to sell 100 tokens at tick 0
+        hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+        uint256 balanceAfter = token0.balanceOf(address(this));
+        assertEq(balanceBefore - balanceAfter, amount);
+
+        uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
+        assertEq(stopLossAmt, amount);
+
+        // contract received a receipt token
+        uint256 tokenId = hook.getTokenId(poolKey, tick, zeroForOne);
+        assertEq(tokenId != 0, true);
+        uint256 receiptBal = hook.balanceOf(address(this), tokenId);
+        assertEq(receiptBal, amount);
+    }
+
+    function test_stopLossExecute_zeroForOne() public {
+        int24 tick = 0;
+        uint256 amount = 100e18;
+        bool zeroForOne = true;
+
+        token0.approve(address(hook), amount);
+        hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+
+        // Perform a test swap //
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: SQRT_RATIO_1_2});
+
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
+
+        swapRouter.swap(poolKey, params, testSettings);
+        // ------------------- //
+
+        // stoploss should be executed
+        uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
+        assertEq(stopLossAmt, 0);
+
+        // receipt tokens are redeemable for token1 (token0 was sold in the stop loss)
+        uint256 tokenId = hook.getTokenId(poolKey, tick, zeroForOne);
+        uint256 redeemable = hook.claimable(address(this), tokenId);
+        assertEq(redeemable, token1.balanceOf(address(this)));
     }
 }
