@@ -9,17 +9,16 @@ import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.s
 import {PoolId} from "@uniswap/v4-core/contracts/libraries/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/contracts/types/BalanceDelta.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
+import {TickMath} from "@uniswap/v4-core/contracts/libraries/TickMath.sol";
 import {UniV4UserHook} from "./UniV4UserHook.sol";
+import "forge-std/Test.sol";
 
-contract StopLoss is UniV4UserHook, ERC1155 {
+contract StopLoss is UniV4UserHook, ERC1155, Test {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    uint256 public afterSwapCount;
-
     mapping(bytes32 poolId => int24 tickLower) public tickLowerLasts;
-    mapping(bytes32 poolId => mapping(int24 tick => mapping(bool zeroForOne => uint256 amount))) public
-        stopLossPositions;
+    mapping(bytes32 poolId => mapping(int24 tick => mapping(bool zeroForOne => int256 amount))) public stopLossPositions;
 
     // TODO: populate on token minting
     mapping(uint256 tokenId => TokenIdData) public tokenIdIndex;
@@ -30,6 +29,11 @@ contract StopLoss is UniV4UserHook, ERC1155 {
         int24 tickLower;
         bool zeroForOne;
     }
+
+    // constants for sqrtPriceLimitX96 which allow for unlimited impact
+    // (stop loss *should* market sell regardless of market depth 🥴)
+    uint160 public constant MIN_PRICE_LIMIT = TickMath.MIN_SQRT_RATIO + 1;
+    uint160 public constant MAX_PRICE_LIMIT = TickMath.MAX_SQRT_RATIO - 1;
 
     constructor(IPoolManager _poolManager) UniV4UserHook(_poolManager) {}
 
@@ -56,28 +60,83 @@ contract StopLoss is UniV4UserHook, ERC1155 {
         return StopLoss.afterInitialize.selector;
     }
 
-    function afterSwap(address, IPoolManager.PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta)
-        external
-        override
-        returns (bytes4)
-    {
-        afterSwapCount++;
+    function afterSwap(
+        address,
+        IPoolManager.PoolKey calldata key,
+        IPoolManager.SwapParams calldata params,
+        BalanceDelta
+    ) external override returns (bytes4) {
+        int24 prevTick = tickLowerLasts[key.toId()];
+        (, int24 tick,) = poolManager.getSlot0(key.toId());
+        int24 currentTick = getTickLower(tick, key.tickSpacing);
+        tick = prevTick;
+
+        int256 swapAmounts;
+
+        // fill stop losses in the opposite direction of the swap
+        // avoids abuse/attack vectors
+        bool stopLossZeroForOne = !params.zeroForOne;
+
+        // TODO: test for off by one because of inequality
+        if (prevTick < currentTick) {
+            for (; tick < currentTick;) {
+                swapAmounts = stopLossPositions[key.toId()][tick][stopLossZeroForOne];
+                if (swapAmounts > 0) {
+                    fillStopLoss(key, tick, stopLossZeroForOne, swapAmounts);
+                }
+                unchecked {
+                    tick += key.tickSpacing;
+                }
+            }
+        } else {
+            for (; currentTick < tick;) {
+                swapAmounts = stopLossPositions[key.toId()][tick][stopLossZeroForOne];
+                if (swapAmounts > 0) {
+                    fillStopLoss(key, tick, stopLossZeroForOne, swapAmounts);
+                }
+                unchecked {
+                    tick -= key.tickSpacing;
+                }
+            }
+        }
         return StopLoss.afterSwap.selector;
+    }
+
+    function fillStopLoss(IPoolManager.PoolKey calldata poolKey, int24 triggerTick, bool zeroForOne, int256 swapAmount)
+        internal
+    {
+        IPoolManager.SwapParams memory stopLossSwapParams = IPoolManager.SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: swapAmount,
+            sqrtPriceLimitX96: zeroForOne ? MIN_PRICE_LIMIT : MAX_PRICE_LIMIT
+        });
+        // TODO: may need a way to halt to prevent perpetual stop loss triggers
+        UniV4UserHook.swap(poolKey, stopLossSwapParams, address(this));
+        stopLossPositions[poolKey.toId()][triggerTick][zeroForOne] -= swapAmount;
     }
 
     // -- Stop Loss User Facing Functions -- //
     function placeStopLoss(IPoolManager.PoolKey calldata poolKey, int24 tickLower, uint256 amountIn, bool zeroForOne)
         external
+        returns (int24 tick)
     {
-        stopLossPositions[poolKey.toId()][tickLower][zeroForOne] += amountIn;
+        // round down according to tickSpacing
+        // TODO: should we round up depending on direction of the position?
+        tick = getTickLower(tickLower, poolKey.tickSpacing);
+        // TODO: safe casting
+        stopLossPositions[poolKey.toId()][tick][zeroForOne] += int256(amountIn);
 
         // mint the receipt token
-        uint256 tokenId = getTokenId(poolKey, tickLower, zeroForOne);
+        uint256 tokenId = getTokenId(poolKey, tick, zeroForOne);
         if (!tokenIdExists[tokenId]) {
             tokenIdExists[tokenId] = true;
-            tokenIdIndex[tokenId] = TokenIdData({poolKey: poolKey, tickLower: tickLower, zeroForOne: zeroForOne});
+            tokenIdIndex[tokenId] = TokenIdData({poolKey: poolKey, tickLower: tick, zeroForOne: zeroForOne});
         }
         _mint(msg.sender, tokenId, amountIn, "");
+
+        // interactions: transfer token0 to this contract
+        address token = zeroForOne ? Currency.unwrap(poolKey.currency0) : Currency.unwrap(poolKey.currency1);
+        IERC20(token).transferFrom(msg.sender, address(this), amountIn);
     }
 
     // TODO: implement, is out of scope for the hackathon
