@@ -15,9 +15,9 @@ contract StopLoss is UniV4UserHook, ERC1155 {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    uint256 public beforeSwapCount;
     uint256 public afterSwapCount;
 
+    mapping(bytes32 poolId => int24 tickLower) public tickLowerLasts;
     mapping(bytes32 poolId => mapping(int24 tick => mapping(bool zeroForOne => uint256 amount))) public
         stopLossPositions;
 
@@ -35,23 +35,24 @@ contract StopLoss is UniV4UserHook, ERC1155 {
     function getHooksCalls() public pure override returns (Hooks.Calls memory) {
         return Hooks.Calls({
             beforeInitialize: false,
-            afterInitialize: false,
+            afterInitialize: true,
             beforeModifyPosition: false,
             afterModifyPosition: false,
-            beforeSwap: true,
+            beforeSwap: false,
             afterSwap: true,
             beforeDonate: false,
             afterDonate: false
         });
     }
 
-    function beforeSwap(address, IPoolManager.PoolKey calldata, IPoolManager.SwapParams calldata)
+    function afterInitialize(address, IPoolManager.PoolKey calldata key, uint160, int24 tick)
         external
         override
+        poolManagerOnly
         returns (bytes4)
     {
-        beforeSwapCount++;
-        return BaseHook.beforeSwap.selector;
+        setTickLowerLast(key.toId(), getTickLower(tick, key.tickSpacing));
+        return StopLoss.afterInitialize.selector;
     }
 
     function afterSwap(address, IPoolManager.PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta)
@@ -60,7 +61,7 @@ contract StopLoss is UniV4UserHook, ERC1155 {
         returns (bytes4)
     {
         afterSwapCount++;
-        return BaseHook.afterSwap.selector;
+        return StopLoss.afterSwap.selector;
     }
 
     // -- Stop Loss User Facing Functions -- //
@@ -94,4 +95,15 @@ contract StopLoss is UniV4UserHook, ERC1155 {
         return IERC20(token).balanceOf(user);
     }
     // ---------- //
+
+    // -- Util functions -- //
+    function setTickLowerLast(bytes32 poolId, int24 tickLower) private {
+        tickLowerLasts[poolId] = tickLower;
+    }
+
+    function getTickLower(int24 tick, int24 tickSpacing) private pure returns (int24) {
+        int24 compressed = tick / tickSpacing;
+        if (tick < 0 && tick % tickSpacing != 0) compressed--; // round towards negative infinity
+        return compressed * tickSpacing;
+    }
 }

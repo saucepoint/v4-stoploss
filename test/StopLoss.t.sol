@@ -23,7 +23,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss hook = StopLoss(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG)));
+    StopLoss hook = StopLoss(address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG)));
     PoolManager manager;
     PoolModifyPositionTest modifyPositionRouter;
     PoolSwapTest swapRouter;
@@ -88,7 +88,6 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     }
 
     function testStopLossHooks() public {
-        assertEq(hook.beforeSwapCount(), 0);
         assertEq(hook.afterSwapCount(), 0);
 
         // Perform a test swap //
@@ -101,7 +100,6 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         swapRouter.swap(poolKey, params, testSettings);
         // ------------------- //
 
-        assertEq(hook.beforeSwapCount(), 1);
         assertEq(hook.afterSwapCount(), 1);
     }
 
