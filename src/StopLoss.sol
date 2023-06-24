@@ -170,15 +170,6 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         return uint256(keccak256(abi.encodePacked(poolKey.toId(), tickLower, zeroForOne)));
     }
 
-    function claimablefoo(address user, uint256 tokenId) external view returns (uint256) {
-        TokenIdData memory data = tokenIdIndex[tokenId];
-        // zeroForOne = true means token0 was sold and token1 was bought
-        // the stop loss position pays out token1
-        address token =
-            data.zeroForOne ? Currency.unwrap(data.poolKey.currency1) : Currency.unwrap(data.poolKey.currency0);
-        return IERC20(token).balanceOf(user);
-    }
-
     function redeem(uint256 tokenId, uint256 amountIn, address destination) external {
         // checks: an amount to redeem
         require(claimable[tokenId] > 0, "StopLoss: no claimable amount");
