@@ -48,20 +48,15 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         initSpark();
     }
 
-    // Stop loss execution happens when theres a trade in the opposite direction
-    // of the position. To test execution, we have a zeroForOne stop loss when
-    // the tick price is less than 100. The pool by default is initialized to tick
-    // price 0. Therefore, assume the pool had enough trades to move the tick price
-    // below 100. On the next oneForZero trade, the stop loss should be executed.
     function test_sparkRepay() public {
         assertEq(WETH.balanceOf(address(this)), 0);
         assertEq(DAI.balanceOf(address(this)), 1200e18);
-        
+
         // use borrowed Dai to buy ETH
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: true,
             amountSpecified: 1200e18,
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO
+            sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
         });
 
         PoolSwapTest.TestSettings memory testSettings =
@@ -69,10 +64,9 @@ contract SparkTest is Test, Deployers, GasSnapshot {
 
         swapRouter.swap(poolKey, params, testSettings);
         // // ------------------- //
-        
-        // assertEq(DAI.balanceOf(address(this)), 0);
-        // assertEq(WETH.balanceOf(address(this)) > 0.25e18, true);
 
+        assertEq(DAI.balanceOf(address(this)), 0);
+        assertEq(WETH.balanceOf(address(this)) > 0.25e18, true);
 
         // create a stop loss: sell ETH for Dai if ETH trades for less than 1600
 
@@ -117,7 +111,7 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         assertEq(Currency.unwrap(poolKey.currency0), address(DAI));
         poolId = PoolId.toId(poolKey);
         // sqrt(1700e18) * 2**96
-        uint160 sqrtPriceX96 = 3266660825699135434887405499641;
+        uint160 sqrtPriceX96 = 1921565191587726726404356176;
         manager.initialize(poolKey, sqrtPriceX96);
 
         // Helpers for interacting with the pool
@@ -133,19 +127,18 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         WETH.approve(address(modifyPositionRouter), wethAmount);
 
         // provide liquidity on the range [1300, 2100] (+/- 400 from 1700)
-        int24 lowerTick = TickMath.getTickAtSqrtRatio(2856612024059740072175611162719); // sqrt(1300e18) * 2**96
-        int24 upperTick = TickMath.getTickAtSqrtRatio(3630690518938791291267782562922); // sqrt(2100e18) * 2**96
+        int24 upperTick = TickMath.getTickAtSqrtRatio(2197393864661338517058162432); // sqrt(1300e18) * 2**96
+        int24 lowerTick = TickMath.getTickAtSqrtRatio(1728900247113710138698944077); // sqrt(2100e18) * 2**96
         lowerTick = lowerTick - (lowerTick % 60); // round down to multiple of tick spacing
         upperTick = upperTick - (upperTick % 60); // round down to multiple of tick spacing
 
-        // random approximation, uses about 90 ETH
-        int256 liquidity = 17e18; 
+        // random approximation, uses about 80 ETH and 168,500 DAI
+        int256 liquidity = 32_500e18;
         modifyPositionRouter.modifyPosition(poolKey, IPoolManager.ModifyPositionParams(lowerTick, upperTick, liquidity));
-        console.log(DAI.balanceOf(address(this)));
 
         // Approve for swapping
-        DAI.approve(address(swapRouter), 2**128);
-        WETH.approve(address(swapRouter), 2**128);
+        DAI.approve(address(swapRouter), 2 ** 128);
+        WETH.approve(address(swapRouter), 2 ** 128);
 
         // clear out delt tokens
         deal(address(DAI), address(this), 0);
