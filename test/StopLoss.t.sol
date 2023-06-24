@@ -29,14 +29,25 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     PoolManager manager;
     PoolModifyPositionTest modifyPositionRouter;
     PoolSwapTest swapRouter;
+    TestERC20 _tokenA;
+    TestERC20 _tokenB;
     TestERC20 token0;
     TestERC20 token1;
     IPoolManager.PoolKey poolKey;
     bytes32 poolId;
 
     function setUp() public {
-        token0 = new TestERC20(2**128);
-        token1 = new TestERC20(2**128);
+        _tokenA = new TestERC20(2**128);
+        _tokenB = new TestERC20(2**128);
+
+        if (address(_tokenA) < address(_tokenB)) {
+            token0 = _tokenA;
+            token1 = _tokenB;
+        } else {
+            token0 = _tokenB;
+            token1 = _tokenA;
+        }
+
         manager = new PoolManager(500000);
 
         // testing environment requires our contract to override `validateHookAddress`
@@ -97,5 +108,16 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         
         assertEq(hook.beforeSwapCount(), 1);
         assertEq(hook.afterSwapCount(), 1);
+    }
+
+    // Place/open a stop loss position
+    function test_place() public {
+        int24 tick = 0;
+        uint256 amount = 100e18;
+        bool zeroForOne = true;
+        hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+
+        uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
+        assertEq(stopLossAmt, amount);
     }
 }
