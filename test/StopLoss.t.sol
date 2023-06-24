@@ -23,7 +23,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss hook = StopLoss(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG)));
+    StopLoss hook = StopLoss(address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG)));
     PoolManager manager;
     PoolModifyPositionTest modifyPositionRouter;
     PoolSwapTest swapRouter;
@@ -79,7 +79,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         modifyPositionRouter.modifyPosition(poolKey, IPoolManager.ModifyPositionParams(-60, 60, 10 ether));
         modifyPositionRouter.modifyPosition(poolKey, IPoolManager.ModifyPositionParams(-120, 120, 10 ether));
         modifyPositionRouter.modifyPosition(
-            poolKey, IPoolManager.ModifyPositionParams(TickMath.minUsableTick(60), TickMath.maxUsableTick(60), 10 ether)
+            poolKey, IPoolManager.ModifyPositionParams(TickMath.minUsableTick(60), TickMath.maxUsableTick(60), 50 ether)
         );
 
         // Approve for swapping
@@ -87,27 +87,9 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         token1.approve(address(swapRouter), 100 ether);
     }
 
-    function testStopLossHooks() public {
-        assertEq(hook.beforeSwapCount(), 0);
-        assertEq(hook.afterSwapCount(), 0);
-
-        // Perform a test swap //
-        IPoolManager.SwapParams memory params =
-            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: SQRT_RATIO_1_2});
-
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
-
-        swapRouter.swap(poolKey, params, testSettings);
-        // ------------------- //
-
-        assertEq(hook.beforeSwapCount(), 1);
-        assertEq(hook.afterSwapCount(), 1);
-    }
-
     // Place/open a stop loss position
     function test_place() public {
-        int24 tick = 0;
+        int24 tick = 100;
         uint256 amount = 100e18;
         bool zeroForOne = true;
 
@@ -115,31 +97,37 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         token0.approve(address(hook), amount);
 
         // place the stop loss position to sell 100 tokens at tick 0
-        hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+        int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+        assertEq(actualTick, 60); // tick spacing of 60 means we "round" tick 100 to 60
         uint256 balanceAfter = token0.balanceOf(address(this));
         assertEq(balanceBefore - balanceAfter, amount);
 
-        uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
-        assertEq(stopLossAmt, amount);
+        int256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), actualTick, zeroForOne);
+        assertEq(stopLossAmt, int256(amount));
 
         // contract received a receipt token
-        uint256 tokenId = hook.getTokenId(poolKey, tick, zeroForOne);
+        uint256 tokenId = hook.getTokenId(poolKey, actualTick, zeroForOne);
         assertEq(tokenId != 0, true);
         uint256 receiptBal = hook.balanceOf(address(this), tokenId);
         assertEq(receiptBal, amount);
     }
 
     function test_stopLossExecute_zeroForOne() public {
-        int24 tick = 0;
-        uint256 amount = 100e18;
+        int24 tick = 100;
+        uint256 amount = 10e18;
         bool zeroForOne = true;
 
         token0.approve(address(hook), amount);
-        hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+        int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
 
         // Perform a test swap //
-        IPoolManager.SwapParams memory params =
-            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: SQRT_RATIO_1_2});
+        // Swap in the opposite direction of the stop loss to trigger it
+        // moves the tick from 0 to 300
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: !zeroForOne,
+            amountSpecified: 1e18,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
+        });
 
         PoolSwapTest.TestSettings memory testSettings =
             PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
@@ -148,12 +136,27 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         // ------------------- //
 
         // stoploss should be executed
-        uint256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
+        int256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
         assertEq(stopLossAmt, 0);
 
         // receipt tokens are redeemable for token1 (token0 was sold in the stop loss)
-        uint256 tokenId = hook.getTokenId(poolKey, tick, zeroForOne);
+        uint256 tokenId = hook.getTokenId(poolKey, actualTick, zeroForOne);
         uint256 redeemable = hook.claimable(address(this), tokenId);
         assertEq(redeemable, token1.balanceOf(address(this)));
+    }
+
+    // -- Allow the test contract to receive ERC1155 tokens -- //
+    receive() external payable {}
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"));
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return bytes4(keccak256("onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)"));
     }
 }
