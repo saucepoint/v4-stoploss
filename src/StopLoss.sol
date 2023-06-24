@@ -11,18 +11,22 @@ import {BalanceDelta} from "@uniswap/v4-core/contracts/types/BalanceDelta.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/contracts/libraries/TickMath.sol";
 import {UniV4UserHook} from "./UniV4UserHook.sol";
+import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 import "forge-std/Test.sol";
 
 contract StopLoss is UniV4UserHook, ERC1155, Test {
+    using FixedPointMathLib for uint256;
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
     mapping(bytes32 poolId => int24 tickLower) public tickLowerLasts;
     mapping(bytes32 poolId => mapping(int24 tick => mapping(bool zeroForOne => int256 amount))) public stopLossPositions;
 
-    // TODO: populate on token minting
+    // -- 1155 state -- //
     mapping(uint256 tokenId => TokenIdData) public tokenIdIndex;
     mapping(uint256 tokenId => bool) public tokenIdExists;
+    mapping(uint256 tokenId => uint256 claimable) public claimable;
+    mapping(uint256 tokenId => uint256 supply) public totalSupply;
 
     struct TokenIdData {
         IPoolManager.PoolKey poolKey;
@@ -111,8 +115,17 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
             sqrtPriceLimitX96: zeroForOne ? MIN_PRICE_LIMIT : MAX_PRICE_LIMIT
         });
         // TODO: may need a way to halt to prevent perpetual stop loss triggers
-        UniV4UserHook.swap(poolKey, stopLossSwapParams, address(this));
+        BalanceDelta delta = UniV4UserHook.swap(poolKey, stopLossSwapParams, address(this));
         stopLossPositions[poolKey.toId()][triggerTick][zeroForOne] -= swapAmount;
+
+        // capital from the swap is redeemable by position holders
+        uint256 tokenId = getTokenId(poolKey, triggerTick, zeroForOne);
+
+        // TODO: safe casting
+        // balance delta returned by .swap(): negative amount indicates outflow from pool (and inflow into contract)
+        // therefore, we need to invert
+        uint256 amount = zeroForOne ? uint256(int256(-delta.amount1())) : uint256(int256(-delta.amount0()));
+        claimable[tokenId] += amount;
     }
 
     // -- Stop Loss User Facing Functions -- //
@@ -133,6 +146,7 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
             tokenIdIndex[tokenId] = TokenIdData({poolKey: poolKey, tickLower: tick, zeroForOne: zeroForOne});
         }
         _mint(msg.sender, tokenId, amountIn, "");
+        totalSupply[tokenId] += amountIn;
 
         // interactions: transfer token0 to this contract
         address token = zeroForOne ? Currency.unwrap(poolKey.currency0) : Currency.unwrap(poolKey.currency1);
@@ -156,13 +170,34 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         return uint256(keccak256(abi.encodePacked(poolKey.toId(), tickLower, zeroForOne)));
     }
 
-    function claimable(address user, uint256 tokenId) external view returns (uint256) {
+    function claimablefoo(address user, uint256 tokenId) external view returns (uint256) {
         TokenIdData memory data = tokenIdIndex[tokenId];
         // zeroForOne = true means token0 was sold and token1 was bought
         // the stop loss position pays out token1
         address token =
             data.zeroForOne ? Currency.unwrap(data.poolKey.currency1) : Currency.unwrap(data.poolKey.currency0);
         return IERC20(token).balanceOf(user);
+    }
+
+    function redeem(uint256 tokenId, uint256 amountIn, address destination) external {
+        // checks: an amount to redeem
+        require(claimable[tokenId] > 0, "StopLoss: no claimable amount");
+        uint256 receiptBalance = balanceOf[msg.sender][tokenId];
+        require(amountIn <= receiptBalance, "StopLoss: not enough tokens to redeem");
+
+        TokenIdData memory data = tokenIdIndex[tokenId];
+        address token =
+            data.zeroForOne ? Currency.unwrap(data.poolKey.currency1) : Currency.unwrap(data.poolKey.currency0);
+
+        // effects: burn the token
+        // amountOut = claimable * (amountIn / totalSupply)
+        uint256 amountOut = amountIn.mulDivDown(claimable[tokenId], totalSupply[tokenId]);
+        claimable[tokenId] -= amountOut;
+        _burn(msg.sender, tokenId, amountIn);
+        totalSupply[tokenId] -= amountIn;
+
+        // interaction: transfer the underlying to the caller
+        IERC20(token).transfer(destination, amountOut);
     }
     // ---------- //
 
