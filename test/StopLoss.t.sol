@@ -23,9 +23,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss hook = StopLoss(
-        address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG))
-    );
+    StopLoss hook = StopLoss(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG)));
     PoolManager manager;
     PoolModifyPositionTest modifyPositionRouter;
     PoolSwapTest swapRouter;
@@ -64,7 +62,8 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         }
 
         // Create the pool
-        poolKey = IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(hook));
+        poolKey =
+            IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(hook));
         poolId = PoolId.toId(poolKey);
         manager.initialize(poolKey, SQRT_RATIO_1_1);
 
@@ -91,21 +90,17 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     function testStopLossHooks() public {
         assertEq(hook.beforeSwapCount(), 0);
         assertEq(hook.afterSwapCount(), 0);
-        
+
         // Perform a test swap //
         IPoolManager.SwapParams memory params =
             IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: SQRT_RATIO_1_2});
 
         PoolSwapTest.TestSettings memory testSettings =
             PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
-        
-        swapRouter.swap(
-            poolKey,
-            params,
-            testSettings
-        );
+
+        swapRouter.swap(poolKey, params, testSettings);
         // ------------------- //
-        
+
         assertEq(hook.beforeSwapCount(), 1);
         assertEq(hook.afterSwapCount(), 1);
     }
