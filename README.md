@@ -3,6 +3,8 @@
 
 *"if ETH drops below $1500, market sell my bags"*
 
+[![Tests](https://github.com/saucepoint/v4-stoploss/actions/workflows/tests.yml/badge.svg)](https://github.com/saucepoint/v4-stoploss/actions/workflows/tests.yml)
+
 Integrated directly into the Uniswap V4 pools, stop loss orders are posted onchain and executed via the `afterSwap()` hook. No external bots or actors are required to guarantee execution.
 
 ![image](https://github.com/saucepoint/v4-stoploss/assets/98790946/bf049297-2629-48bb-a0bd-8be22f6ace13)

@@ -82,7 +82,7 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         assertEq(hook.balanceOf(address(this), tokenId) > 0, true);
 
         // trigger the stop loss
-        forceStopLoss(actualTick);
+        forceStopLoss();
 
         // claim the USDC
         uint256 redeemable = hook.claimable(tokenId);
@@ -171,7 +171,7 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
     }
 
     // Execute trades to force stop loss execution to occur
-    function forceStopLoss(int24 triggerTick) internal {
+    function forceStopLoss() internal {
         // Dump ETH past the tick trigger
         uint256 wethAmount = 20e18;
         deal(address(WETH), address(this), wethAmount);
@@ -185,8 +185,6 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
             PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
 
         swapRouter.swap(poolKey, params, testSettings);
-
-        (, int24 tick,) = manager.getSlot0(poolKey.toId());
 
         // Swap in the opposite direction of the trigger (trigger was sell ETH for USDC, zeroForOne = false)
         uint256 usdcAmount = 5000e6;
