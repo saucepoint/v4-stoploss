@@ -52,6 +52,10 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         assertEq(WETH.balanceOf(address(this)), 0);
         assertEq(DAI.balanceOf(address(this)), 1200e18);
 
+        // cannot withdraw ETH because of health factor
+        vm.expectRevert();
+        sparkPool.withdraw(address(WETH), 0.75e18, address(this));
+
         // use borrowed Dai to buy ETH
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: true,
@@ -68,13 +72,30 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         assertEq(DAI.balanceOf(address(this)), 0);
         assertEq(WETH.balanceOf(address(this)) > 0.25e18, true);
 
-        // create a stop loss: sell ETH for Dai if ETH trades for less than 1600
+        // create a stop loss: sell all of the ETH for Dai if ETH trades for less than 1650
+        int24 tick = TickMath.getTickAtSqrtRatio(1950462530286735294571872055); // sqrt(1/1650) * 2**96
+        uint256 amount = WETH.balanceOf(address(this));
+
+        WETH.approve(address(hook), amount);
+        int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, false);
+        uint256 tokenId = hook.getTokenId(poolKey, actualTick, false);
+        assertEq(hook.balanceOf(address(this), tokenId) > 0, true);
 
         // trigger the stop loss
+        forceStopLoss(actualTick);        
 
         // claim the Dai
+        uint256 redeemable = hook.claimable(tokenId);
+        assertEq(redeemable > 0, true);
+        hook.redeem(tokenId, hook.balanceOf(address(this), tokenId), address(this));
+        assertEq(DAI.balanceOf(address(this)), redeemable);
 
         // repay the Dai
+        DAI.approve(address(sparkPool), redeemable);
+        sparkPool.repay(address(DAI), redeemable, 2, address(this));
+
+        // can withdraw some of the collateral
+        sparkPool.withdraw(address(WETH), 0.75e18, address(this));
     }
 
     // -- Helpers -- //
@@ -158,6 +179,34 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         // borrow 1200 DAI, on the variable pool
         uint256 amount = 1200e18;
         sparkPool.borrow(address(DAI), amount, 2, 0, address(this));
+    }
+
+    // Execute trades to force stop loss execution to occur
+    function forceStopLoss(int24 triggerTick) internal {
+        // Dump ETH past the tick trigger
+        uint256 wethAmount = 20e18;
+        deal(address(WETH), address(this), wethAmount);
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: false,
+            amountSpecified: int256(wethAmount),
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
+        });
+
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
+
+        swapRouter.swap(poolKey, params, testSettings);
+
+        (, int24 tick, ) = manager.getSlot0(poolKey.toId());
+
+        // Swap in the opposite direction of the trigger (trigger was sell ETH for Dai, zeroForOne = false)
+        uint256 daiAmount = 5000e18;
+        deal(address(DAI), address(this), daiAmount);
+        
+        params.zeroForOne = true;
+        params.amountSpecified = int256(daiAmount);
+        params.sqrtPriceLimitX96 = TickMath.MIN_SQRT_RATIO + 1;
+        swapRouter.swap(poolKey, params, testSettings);
     }
 
     // -- Allow the test contract to receive ERC1155 tokens -- //
