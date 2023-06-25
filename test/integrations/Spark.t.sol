@@ -82,7 +82,7 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         assertEq(hook.balanceOf(address(this), tokenId) > 0, true);
 
         // trigger the stop loss
-        forceStopLoss(actualTick);        
+        forceStopLoss(actualTick);
 
         // claim the Dai
         uint256 redeemable = hook.claimable(tokenId);
@@ -197,12 +197,12 @@ contract SparkTest is Test, Deployers, GasSnapshot {
 
         swapRouter.swap(poolKey, params, testSettings);
 
-        (, int24 tick, ) = manager.getSlot0(poolKey.toId());
+        (, int24 tick,) = manager.getSlot0(poolKey.toId());
 
         // Swap in the opposite direction of the trigger (trigger was sell ETH for Dai, zeroForOne = false)
         uint256 daiAmount = 5000e18;
         deal(address(DAI), address(this), daiAmount);
-        
+
         params.zeroForOne = true;
         params.amountSpecified = int256(daiAmount);
         params.sqrtPriceLimitX96 = TickMath.MIN_SQRT_RATIO + 1;
