@@ -5,24 +5,27 @@
 
 Integrated directly into the Uniswap V4 pools, stop loss orders are posted onchain and executed via the `afterSwap()` hook. No external bots or actors are required to guarantee execution.
 
+![image](https://github.com/saucepoint/v4-stoploss/assets/98790946/c5466ab3-45b5-4aec-97b2-74b64a337771)
+
+
 ---
 
 ## Use Cases
 
-* Spot traders: protect overnight positions from downside risk
+* <ins>Spot traders</ins>: protect overnight positions from downside risk
 
-* Leverage traders: use stop loss proceeds to repay loans. Example capital flow found in
+* <ins>Leverage traders</ins>: use stop loss proceeds to repay loans. Please see [examples/README.md](examples/README.md) for usage
 
-* Lending Protocols (advanced): use stop loss orders to *liquidate collateral*. Instead of liquidation bots and external participants, stop losses have guaranteed execution.
+* <ins>Lending Protocols (advanced)</ins>: use stop loss orders to *liquidate collateral*. Instead of liquidation bots and external participants, stop losses have offer guaranteed execution.
     * Note: additional safety is required to ensure that large market orders do not result in bad debt
 
 ## Features
 
-* Guaranteed execution. If the pool crosses the triggered tick, the posted capital is guaranteed to market-sell.
+* Guaranteed execution -- if the pool crosses the a specified tick, the posted capital is guaranteed to market-sell.
 
-* Asynchronous claims on executed orders. Opening a stop loss order provides an ERC-1155 receipt token. Upon successful order execution, the receipt token is exchanged for the proceeds.
+* Asynchronous claims -- opening a stop loss order provides an ERC-1155 receipt token. Upon successful order execution, the receipt token is exchanged for the proceeds.
 
-* Semi-resistant to flashloan pool manipulation. The choice of `afterSwap()` and opposite-trade execution reduces incentives to create scam wicks.
+* Generic, reusable Hook -- the hook is deployed once, new pools can utilize the already-deployed hook
 
 ---
 
