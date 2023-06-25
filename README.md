@@ -16,14 +16,14 @@ Integrated directly into the Uniswap V4 pools, stop loss orders are posted oncha
 
 * <ins>Leverage traders</ins>: use stop loss proceeds to repay loans. Please see [examples/README.md](examples/README.md) for usage
 
-* <ins>Lending Protocols (advanced)</ins>: use stop loss orders to *liquidate collateral*. Instead of liquidation bots and external participants, stop losses have offer guaranteed execution.
+* <ins>Lending Protocols (advanced)</ins>: use stop loss orders to *liquidate collateral*. Instead of liquidation bots and external participants, stop losses offer guaranteed execution
     * Note: additional safety is required to ensure that large market orders do not result in bad debt
 
 ## Features
 
-* Guaranteed execution -- if the pool crosses the a specified tick, the posted capital is guaranteed to market-sell.
+* Guaranteed execution -- if the pool crosses the user-specified tick, the posted capital is guaranteed to market-sell
 
-* Asynchronous claims -- opening a stop loss order provides an ERC-1155 receipt token. Upon successful order execution, the receipt token is exchanged for the proceeds.
+* Asynchronous claims -- opening a stop loss order provides an ERC-1155 receipt token. Upon successful order execution, the receipt token is exchanged for the proceeds
 
 * Generic, reusable Hook -- the hook is deployed once, new pools can utilize the already-deployed hook
 
