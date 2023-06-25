@@ -48,11 +48,9 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         initComet();
     }
 
-    function testFoo() public {}
-
-    function cometRepay() public {
+    function test_cometRepay() public {
         assertEq(WETH.balanceOf(address(this)), 0);
-        assertEq(USDC.balanceOf(address(this)), 1200e18);
+        assertEq(USDC.balanceOf(address(this)), 1200e6);
 
         // cannot withdraw ETH because of health factor
         vm.expectRevert();
@@ -61,7 +59,7 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         // use borrowed USDC to buy ETH
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: true,
-            amountSpecified: 1200e18,
+            amountSpecified: 1200e6,
             sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
         });
 
@@ -75,7 +73,7 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         assertEq(WETH.balanceOf(address(this)) > 0.25e18, true);
 
         // create a stop loss: sell all of the ETH for USDC if ETH trades for less than 1650
-        int24 tick = TickMath.getTickAtSqrtRatio(1950462530286735294571872055); // sqrt(1/1650) * 2**96
+        int24 tick = TickMath.getTickAtSqrtRatio(1950462530286735294571872055596685); // sqrt(1e18/1650e6) * 2**96
         uint256 amount = WETH.balanceOf(address(this));
 
         WETH.approve(address(hook), amount);
@@ -191,7 +189,7 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         (, int24 tick,) = manager.getSlot0(poolKey.toId());
 
         // Swap in the opposite direction of the trigger (trigger was sell ETH for USDC, zeroForOne = false)
-        uint256 usdcAmount = 5000e18;
+        uint256 usdcAmount = 5000e6;
         deal(address(USDC), address(this), usdcAmount);
 
         params.zeroForOne = true;
