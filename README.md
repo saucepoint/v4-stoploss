@@ -18,7 +18,11 @@ Integrated directly into the Uniswap V4 pools, stop loss orders are posted oncha
 
 ## Features
 
-* 
+* Guaranteed execution. If the pool crosses the triggered tick, the posted capital is guaranteed to market-sell.
+
+* Asynchronous claims on executed orders. Opening a stop loss order provides an ERC-1155 receipt token. Upon successful order execution, the receipt token is exchanged for the proceeds.
+
+* Semi-resistant to flashloan pool manipulation. The choice of `afterSwap()` and opposite-trade execution reduces incentives to create scam wicks.
 
 ---
 
