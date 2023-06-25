@@ -131,7 +131,7 @@ contract SparkTest is Test, Deployers, GasSnapshot {
             IPoolManager.PoolKey(Currency.wrap(address(DAI)), Currency.wrap(address(WETH)), 3000, 60, IHooks(hook));
         assertEq(Currency.unwrap(poolKey.currency0), address(DAI));
         poolId = PoolId.toId(poolKey);
-        // sqrt(1700e18) * 2**96
+        // sqrt(1e18/1700e18) * 2**96
         uint160 sqrtPriceX96 = 1921565191587726726404356176;
         manager.initialize(poolKey, sqrtPriceX96);
 
@@ -148,8 +148,8 @@ contract SparkTest is Test, Deployers, GasSnapshot {
         WETH.approve(address(modifyPositionRouter), wethAmount);
 
         // provide liquidity on the range [1300, 2100] (+/- 400 from 1700)
-        int24 upperTick = TickMath.getTickAtSqrtRatio(2197393864661338517058162432); // sqrt(1300e18) * 2**96
-        int24 lowerTick = TickMath.getTickAtSqrtRatio(1728900247113710138698944077); // sqrt(2100e18) * 2**96
+        int24 upperTick = TickMath.getTickAtSqrtRatio(2197393864661338517058162432); // sqrt(1e18/1300e18) * 2**96
+        int24 lowerTick = TickMath.getTickAtSqrtRatio(1728900247113710138698944077); // sqrt(1e18/2100e18) * 2**96
         lowerTick = lowerTick - (lowerTick % 60); // round down to multiple of tick spacing
         upperTick = upperTick - (upperTick % 60); // round down to multiple of tick spacing
 
