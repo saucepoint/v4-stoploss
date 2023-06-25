@@ -45,4 +45,4 @@ See [test/Compound3.t.sol](../test/integrations/Compound3.t.sol) for a working e
 
 A note on redeeming proceeds:
 
-Currently external automation is required to repay loans, since stop-loss-proceeds are claimed asynchronously. This is a limitation because "pushing" the proceeds to many parties is not scalable. In an ideal scenario, the ERC-1155 receipt tokens are acceptable forms of "repayment". After creating a stop loss position, the receipt token can be transferred to the lending protocol which can be unwound for depositors. Another potential implementation is having liquidation conditions account for the receipt tokens.
+Currently external automation is required to repay loans, since stop-loss-proceeds are claimed asynchronously. This is a limitation because "pushing" the proceeds to many parties is not scalable. In an ideal scenario, the ERC-1155 receipt tokens are acceptable forms of *repayment*. After creating a stop loss position, the receipt token can be transferred to the lending protocol that can be unwound for depositors. Another potential implementation is having liquidation conditions account for the receipt tokens.
