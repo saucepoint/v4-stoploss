@@ -5,7 +5,7 @@
 
 Integrated directly into the Uniswap V4 pools, stop loss orders are posted onchain and executed via the `afterSwap()` hook. No external bots or actors are required to guarantee execution.
 
-![image](https://github.com/saucepoint/v4-stoploss/assets/98790946/c5466ab3-45b5-4aec-97b2-74b64a337771)
+![image](https://github.com/saucepoint/v4-stoploss/assets/98790946/bf049297-2629-48bb-a0bd-8be22f6ace13)
 
 
 ---
