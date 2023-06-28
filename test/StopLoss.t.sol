@@ -157,6 +157,59 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         assertEq(token1.balanceOf(address(hook)), 0); // redeemed it all
     }
 
+    function test_stoploss_twap_zeroForOne() public {
+        // create some trades to populate TWAP
+        swap(1e18, true);
+        vm.warp(block.timestamp + 15);
+        swap(1e18, false);
+        vm.warp(block.timestamp + 20);
+        swap(1e18, true);
+        vm.warp(block.timestamp + 25);
+
+        // place a stop loss at tick 100
+        int24 tick = 100;
+        uint256 amount = 10e18;
+        bool zeroForOne = true;
+        token0.approve(address(hook), amount);
+        int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
+
+        // TODO: assert that the TWAP tick is below the threshold tick
+        
+        // perform a swap for stop loss execution
+        swap(100 wei, false);
+
+        // stoploss should be executed
+        int256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
+        assertEq(stopLossAmt, 0);
+
+        // receipt tokens are redeemable for token1 (token0 was sold in the stop loss)
+        uint256 tokenId = hook.getTokenId(poolKey, actualTick, zeroForOne);
+        uint256 redeemable = hook.claimable(tokenId);
+        assertEq(redeemable, token1.balanceOf(address(hook))); // we're the only holders so we can redeem it all
+
+        // redeem all of the receipt for the underlying
+        uint256 balanceBefore = token1.balanceOf(address(this));
+        hook.redeem(tokenId, hook.balanceOf(address(this), tokenId), address(this));
+        uint256 balanceAfter = token1.balanceOf(address(this));
+        assertEq(balanceAfter - balanceBefore, redeemable);
+        assertEq(token1.balanceOf(address(hook)), 0); // redeemed it all
+    }
+
+    // -- Test Helpers -- //
+    function swap(int256 amountSpecified, bool zeroForOne) internal {
+        // Perform a test swap //
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: amountSpecified,
+            sqrtPriceLimitX96: zeroForOne ? hook.MIN_PRICE_LIMIT() : hook.MAX_PRICE_LIMIT() // unlimited impact
+        });
+
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
+
+        swapRouter.swap(poolKey, params, testSettings);
+    }
+
     // -- Allow the test contract to receive ERC1155 tokens -- //
     receive() external payable {}
 
