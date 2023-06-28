@@ -10,7 +10,7 @@ import {PoolId} from "@uniswap/v4-core/contracts/libraries/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/contracts/types/BalanceDelta.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/contracts/libraries/TickMath.sol";
-import {UniV4UserHook} from "./UniV4UserHook.sol";
+import {UniV4UserHook} from "./utils/UniV4UserHook.sol";
 import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 import "forge-std/Test.sol";
 
