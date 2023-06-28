@@ -174,7 +174,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
 
         // TODO: assert that the TWAP tick is below the threshold tick
-        
+
         // perform a swap for stop loss execution
         swap(100 wei, false);
 
