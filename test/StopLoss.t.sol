@@ -18,12 +18,21 @@ import {Deployers} from "@uniswap/v4-core/test/foundry-tests/utils/Deployers.sol
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
 import {StopLoss} from "../src/StopLoss.sol";
 import {StopLossImplementation} from "../src/implementation/StopLossImplementation.sol";
+import {GeomeanOracle, GeomeanOracleImplementation} from "v4-periphery/../test/shared/implementation/GeomeanOracleImplementation.sol";
 
 contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss hook = StopLoss(address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG)));
+    StopLoss hook = StopLoss(address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG | 0x1)));
+    GeomeanOracle oracle = GeomeanOracle(
+        address(
+            uint160(
+                Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_MODIFY_POSITION_FLAG
+                    | Hooks.BEFORE_SWAP_FLAG | 0x2
+            )
+        )
+    );
     PoolManager manager;
     PoolModifyPositionTest modifyPositionRouter;
     PoolSwapTest swapRouter;
@@ -32,11 +41,13 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     TestERC20 token0;
     TestERC20 token1;
     IPoolManager.PoolKey poolKey;
+    IPoolManager.PoolKey oracleKey;
     bytes32 poolId;
 
     function setUp() public {
-        _tokenA = new TestERC20(2**128);
-        _tokenB = new TestERC20(2**128);
+        uint256 amt = 2**128;
+        _tokenA = new TestERC20(amt);
+        _tokenB = new TestERC20(amt);
 
         if (address(_tokenA) < address(_tokenB)) {
             token0 = _tokenA;
@@ -50,16 +61,8 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
 
         // testing environment requires our contract to override `validateHookAddress`
         // well do that via the Implementation contract to avoid deploying the override with the production contract
-        StopLossImplementation impl = new StopLossImplementation(manager, hook);
-        (, bytes32[] memory writes) = vm.accesses(address(impl));
-        vm.etch(address(hook), address(impl).code);
-        // for each storage key that was written during the hook implementation, copy the value over
-        unchecked {
-            for (uint256 i = 0; i < writes.length; i++) {
-                bytes32 slot = writes[i];
-                vm.store(address(hook), slot, vm.load(address(impl), slot));
-            }
-        }
+        etchHook(address(oracle), address(new GeomeanOracleImplementation(manager, oracle)));
+        etchHook(address(hook), address(new StopLossImplementation(manager, hook)));
 
         // Create the pool
         poolKey =
@@ -67,24 +70,30 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         poolId = PoolId.toId(poolKey);
         manager.initialize(poolKey, SQRT_RATIO_1_1);
 
+        oracleKey =
+            IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 0, manager.MAX_TICK_SPACING(), IHooks(oracle));
+        manager.initialize(oracleKey, SQRT_RATIO_1_1);
+
         // Helpers for interacting with the pool
         modifyPositionRouter = new PoolModifyPositionTest(IPoolManager(address(manager)));
         swapRouter = new PoolSwapTest(IPoolManager(address(manager)));
 
         // Provide liquidity to the pool
-        token0.approve(address(modifyPositionRouter), 100 ether);
-        token1.approve(address(modifyPositionRouter), 100 ether);
-        token0.mint(address(this), 100 ether);
-        token1.mint(address(this), 100 ether);
+        token0.approve(address(modifyPositionRouter), amt);
+        token1.approve(address(modifyPositionRouter), amt);
         modifyPositionRouter.modifyPosition(poolKey, IPoolManager.ModifyPositionParams(-60, 60, 10 ether));
         modifyPositionRouter.modifyPosition(poolKey, IPoolManager.ModifyPositionParams(-120, 120, 10 ether));
         modifyPositionRouter.modifyPosition(
             poolKey, IPoolManager.ModifyPositionParams(TickMath.minUsableTick(60), TickMath.maxUsableTick(60), 50 ether)
         );
 
+        modifyPositionRouter.modifyPosition(
+            oracleKey, IPoolManager.ModifyPositionParams(TickMath.minUsableTick(manager.MAX_TICK_SPACING()), TickMath.maxUsableTick(manager.MAX_TICK_SPACING()), 50 ether)
+        );
+
         // Approve for swapping
-        token0.approve(address(swapRouter), 100 ether);
-        token1.approve(address(swapRouter), 100 ether);
+        token0.approve(address(swapRouter), amt);
+        token1.approve(address(swapRouter), amt);
     }
 
     // Place/open a stop loss position
@@ -157,13 +166,13 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         assertEq(token1.balanceOf(address(hook)), 0); // redeemed it all
     }
 
-    function test_stoploss_twap_zeroForOne() public {
-        // create some trades to populate TWAP
-        swap(1e18, true);
+    function test_stoploss_oracle_zeroForOne() public {
+        // create some trades to populate oracle
+        swap(oracleKey, 1e18, true);
         vm.warp(block.timestamp + 15);
-        swap(1e18, false);
+        swap(oracleKey, 1e18, false);
         vm.warp(block.timestamp + 20);
-        swap(1e18, true);
+        swap(oracleKey, 1e18, true);
         vm.warp(block.timestamp + 25);
 
         // place a stop loss at tick 100
@@ -176,7 +185,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         // TODO: assert that the TWAP tick is below the threshold tick
 
         // perform a swap for stop loss execution
-        swap(100 wei, false);
+        swap(poolKey, 100 wei, false);
 
         // stoploss should be executed
         int256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
@@ -196,7 +205,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     }
 
     // -- Test Helpers -- //
-    function swap(int256 amountSpecified, bool zeroForOne) internal {
+    function swap(IPoolManager.PoolKey memory key, int256 amountSpecified, bool zeroForOne) internal {
         // Perform a test swap //
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: zeroForOne,
@@ -207,7 +216,21 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         PoolSwapTest.TestSettings memory testSettings =
             PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
 
-        swapRouter.swap(poolKey, params, testSettings);
+        swapRouter.swap(key, params, testSettings);
+    }
+
+    function etchHook(address _hook, address _implementation) public {
+        // testing environment requires our contract to override `validateHookAddress`
+        // well do that via the Implementation contract to avoid deploying the override with the production contract
+        (, bytes32[] memory writes) = vm.accesses(address(_implementation));
+        vm.etch(_hook, address(_implementation).code);
+        // for each storage key that was written during the hook implementation, copy the value over
+        unchecked {
+            for (uint256 i = 0; i < writes.length; i++) {
+                bytes32 slot = writes[i];
+                vm.store(_hook, slot, vm.load(address(_implementation), slot));
+            }
+        }
     }
 
     // -- Allow the test contract to receive ERC1155 tokens -- //
