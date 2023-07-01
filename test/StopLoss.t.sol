@@ -25,7 +25,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     using CurrencyLibrary for Currency;
 
     StopLoss hook = StopLoss(address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG | 0x1)));
-    GeomeanOracle oracle = GeomeanOracle(
+    GeomeanOracleImplementation oracle = GeomeanOracleImplementation(
         address(
             uint160(
                 Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_MODIFY_POSITION_FLAG
@@ -63,6 +63,8 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         // well do that via the Implementation contract to avoid deploying the override with the production contract
         etchHook(address(oracle), address(new GeomeanOracleImplementation(manager, oracle)));
         etchHook(address(hook), address(new StopLossImplementation(manager, hook)));
+
+        oracle.setTime(1);
 
         // Create the pool
         poolKey =
@@ -166,10 +168,38 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         assertEq(token1.balanceOf(address(hook)), 0); // redeemed it all
     }
 
+    function test_foo() public {
+        uint32[] memory secondsAgo = new uint32[](2);
+        secondsAgo[0] = 5;
+        secondsAgo[1] = 0;
+
+        // create some trades to populate oracle
+        swap(oracleKey, 2e18, true);
+        oracle.setTime(oracle.time() + 100);
+        swap(oracleKey, 2e18, true);
+        log_oracle(secondsAgo);
+
+        // oracle.setTime(oracle.time() + 5);
+        // swap(oracleKey, 2e18, true);
+        // log_oracle(secondsAgo);
+
+        // oracle.setTime(oracle.time() + 5);
+        // log_oracle(secondsAgo);
+        // oracle.setTime(oracle.time() + 5);
+        // log_oracle(secondsAgo);
+    }
+
+    function log_oracle(uint32[] memory secondsAgo) internal view {
+        (int56[] memory tickCumulatives,) = oracle.observe(oracleKey, secondsAgo);
+        int56 tickDiff = tickCumulatives[1] - tickCumulatives[0];
+        int56 tickAvg = tickDiff / 5;
+        console2.log(int256(tickAvg));
+    }
+
     function test_stoploss_oracle_zeroForOne() public {
         // create some trades to populate oracle
         swap(oracleKey, 1e18, true);
-        vm.warp(block.timestamp + 15);
+        
         swap(oracleKey, 1e18, false);
         vm.warp(block.timestamp + 20);
         swap(oracleKey, 1e18, true);
