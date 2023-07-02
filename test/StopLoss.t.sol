@@ -170,29 +170,32 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
 
     function test_foo() public {
         uint32[] memory secondsAgo = new uint32[](2);
-        secondsAgo[0] = 5;
+        secondsAgo[0] = 8;
         secondsAgo[1] = 0;
 
+        int24 currentTick;
+
         // create some trades to populate oracle
+        (,currentTick,) = manager.getSlot0(oracleKey.toId());
+        console2.log(int256(currentTick));
+        swap(oracleKey, 10e18, true);
+        (,currentTick,) = manager.getSlot0(oracleKey.toId());
+        console2.log(int256(currentTick));
+        
+        oracle.setTime(oracle.time() + 10);
         swap(oracleKey, 2e18, true);
-        oracle.setTime(oracle.time() + 100);
-        swap(oracleKey, 2e18, true);
+        
+        oracle.setTime(oracle.time() + 10);
         log_oracle(secondsAgo);
 
-        // oracle.setTime(oracle.time() + 5);
-        // swap(oracleKey, 2e18, true);
-        // log_oracle(secondsAgo);
-
-        // oracle.setTime(oracle.time() + 5);
-        // log_oracle(secondsAgo);
-        // oracle.setTime(oracle.time() + 5);
-        // log_oracle(secondsAgo);
+        (,currentTick,) = manager.getSlot0(oracleKey.toId());
+        console2.log(int256(currentTick));
     }
 
     function log_oracle(uint32[] memory secondsAgo) internal view {
         (int56[] memory tickCumulatives,) = oracle.observe(oracleKey, secondsAgo);
         int56 tickDiff = tickCumulatives[1] - tickCumulatives[0];
-        int56 tickAvg = tickDiff / 5;
+        int56 tickAvg = tickDiff / 8;
         console2.log(int256(tickAvg));
     }
 
