@@ -18,7 +18,8 @@ import {Deployers} from "@uniswap/v4-core/test/foundry-tests/utils/Deployers.sol
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
 import {StopLoss} from "../src/StopLoss.sol";
 import {StopLossImplementation} from "../src/implementation/StopLossImplementation.sol";
-import {GeomeanOracle, GeomeanOracleImplementation} from "v4-periphery/../test/shared/implementation/GeomeanOracleImplementation.sol";
+import {GeomeanOracle} from "v4-periphery/hooks/examples/GeomeanOracle.sol";
+import {GeomeanOracleImplementation} from "v4-periphery/../test/shared/implementation/GeomeanOracleImplementation.sol";
 
 contract StopLossTest is Test, Deployers, GasSnapshot {
     using PoolId for IPoolManager.PoolKey;
@@ -62,7 +63,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         // testing environment requires our contract to override `validateHookAddress`
         // well do that via the Implementation contract to avoid deploying the override with the production contract
         etchHook(address(oracle), address(new GeomeanOracleImplementation(manager, oracle)));
-        etchHook(address(hook), address(new StopLossImplementation(manager, hook)));
+        etchHook(address(hook), address(new StopLossImplementation(manager, hook, GeomeanOracle(address(oracle)))));
 
         oracle.setTime(1);
 

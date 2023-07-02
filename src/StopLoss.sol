@@ -12,6 +12,7 @@ import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/Cu
 import {TickMath} from "@uniswap/v4-core/contracts/libraries/TickMath.sol";
 import {UniV4UserHook} from "./utils/UniV4UserHook.sol";
 import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
+import {GeomeanOracle} from "v4-periphery/hooks/examples/GeomeanOracle.sol";
 import "forge-std/Test.sol";
 
 contract StopLoss is UniV4UserHook, ERC1155, Test {
@@ -34,12 +35,16 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         bool zeroForOne;
     }
 
+    GeomeanOracle public immutable oracleHook;
+
     // constants for sqrtPriceLimitX96 which allow for unlimited impact
     // (stop loss *should* market sell regardless of market depth 🥴)
     uint160 public constant MIN_PRICE_LIMIT = TickMath.MIN_SQRT_RATIO + 1;
     uint160 public constant MAX_PRICE_LIMIT = TickMath.MAX_SQRT_RATIO - 1;
 
-    constructor(IPoolManager _poolManager) UniV4UserHook(_poolManager) {}
+    constructor(IPoolManager _poolManager, GeomeanOracle oracle) UniV4UserHook(_poolManager) {
+        oracleHook = oracle;
+    }
 
     function getHooksCalls() public pure override returns (Hooks.Calls memory) {
         return Hooks.Calls({
