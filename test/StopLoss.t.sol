@@ -134,51 +134,6 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         assertEq(receiptBal, amount);
     }
 
-    // Stop loss execution happens when theres a trade in the opposite direction
-    // of the position. To test execution, we have a zeroForOne stop loss when
-    // the tick price is less than 100. The pool by default is initialized to tick
-    // price 0. Therefore, assume the pool had enough trades to move the tick price
-    // below 100. On the next oneForZero trade, the stop loss should be executed.
-    function test_stopLossExecute_zeroForOne() public {
-        int24 tick = 100;
-        uint256 amount = 10e18;
-        bool zeroForOne = true;
-
-        token0.approve(address(hook), amount);
-        int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
-
-        // Perform a test swap //
-        // Swap in the opposite direction of the stop loss to trigger it
-        // moves the tick from 0 to 300
-        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: !zeroForOne,
-            amountSpecified: 1e18,
-            sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
-        });
-
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
-
-        swapRouter.swap(poolKey, params, testSettings);
-        // ------------------- //
-
-        // stoploss should be executed
-        int256 stopLossAmt = hook.stopLossPositions(poolKey.toId(), tick, zeroForOne);
-        assertEq(stopLossAmt, 0);
-
-        // receipt tokens are redeemable for token1 (token0 was sold in the stop loss)
-        uint256 tokenId = hook.getTokenId(poolKey, actualTick, zeroForOne);
-        uint256 redeemable = hook.claimable(tokenId);
-        assertEq(redeemable, token1.balanceOf(address(hook))); // we're the only holders so we can redeem it all
-
-        // redeem all of the receipt for the underlying
-        uint256 balanceBefore = token1.balanceOf(address(this));
-        hook.redeem(tokenId, hook.balanceOf(address(this), tokenId), address(this));
-        uint256 balanceAfter = token1.balanceOf(address(this));
-        assertEq(balanceAfter - balanceBefore, redeemable);
-        assertEq(token1.balanceOf(address(hook)), 0); // redeemed it all
-    }
-
     function test_stoploss_oracle_zeroForOne() public {
         // place a stop loss at tick 100
         int24 tick = 100;

@@ -146,8 +146,7 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         returns (int24 tick)
     {
         // round down according to tickSpacing
-        // TODO: should we round up depending on direction of the position?
-        tick = getTickFloor(tickLower, poolKey.tickSpacing);
+        tick = zeroForOne ? getTickFloor(tickLower, poolKey.tickSpacing) : getTickCeil(tickLower, poolKey.tickSpacing);
         // TODO: safe casting
         stopLossPositions[poolKey.toId()][tick][zeroForOne] += int256(amountIn);
 
