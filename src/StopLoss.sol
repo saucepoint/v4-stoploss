@@ -71,12 +71,11 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         return StopLoss.afterInitialize.selector;
     }
 
-    function afterSwap(
-        address,
-        IPoolManager.PoolKey calldata key,
-        IPoolManager.SwapParams calldata params,
-        BalanceDelta
-    ) external override returns (bytes4) {
+    function afterSwap(address, IPoolManager.PoolKey calldata key, IPoolManager.SwapParams calldata, BalanceDelta)
+        external
+        override
+        returns (bytes4)
+    {
         int24 prevTick = twapTicks[key.toId()];
         int24 currentTick = latestTwapTick(key);
         if (currentTick == prevTick) return StopLoss.afterSwap.selector;
