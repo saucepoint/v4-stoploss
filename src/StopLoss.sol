@@ -3,6 +3,7 @@ pragma solidity ^0.8.15;
 
 import {ERC1155} from "solmate/tokens/ERC1155.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {IHooks} from "@uniswap/v4-core/contracts/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/contracts/libraries/Hooks.sol";
 import {BaseHook} from "v4-periphery/BaseHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.sol";
@@ -21,6 +22,7 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
     using CurrencyLibrary for Currency;
 
     mapping(bytes32 poolId => int24 tickLower) public tickLowerLasts;
+    mapping(bytes32 poolId => int24 twapTick) public twapTicks;
     mapping(bytes32 poolId => mapping(int24 tick => mapping(bool zeroForOne => int256 amount))) public stopLossPositions;
 
     // -- 1155 state -- //
@@ -65,7 +67,7 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         poolManagerOnly
         returns (bytes4)
     {
-        setTickLowerLast(key.toId(), getTickLower(tick, key.tickSpacing));
+        setTickLowerLast(key.toId(), getTickFloor(tick, key.tickSpacing));
         return StopLoss.afterInitialize.selector;
     }
 
@@ -75,35 +77,41 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         IPoolManager.SwapParams calldata params,
         BalanceDelta
     ) external override returns (bytes4) {
-        int24 prevTick = tickLowerLasts[key.toId()];
-        (, int24 tick,) = poolManager.getSlot0(key.toId());
-        int24 currentTick = getTickLower(tick, key.tickSpacing);
-        tick = prevTick;
+        int24 prevTick = twapTicks[key.toId()];
+        int24 currentTick = latestTwapTick(key);
+        if (currentTick == prevTick) return StopLoss.afterSwap.selector;
 
-        int256 swapAmounts;
+        // effects: update twapTick
+        twapTicks[key.toId()] = currentTick;
 
-        // fill stop losses in the opposite direction of the swap
-        // avoids abuse/attack vectors
-        bool stopLossZeroForOne = !params.zeroForOne;
+        int24 tick;
+        int24 endTick;
+        bool fillZeroForOne;
 
-        // TODO: test for off by one because of inequality
         if (prevTick < currentTick) {
-            for (; tick < currentTick;) {
-                swapAmounts = stopLossPositions[key.toId()][tick][stopLossZeroForOne];
-                if (swapAmounts > 0) {
-                    fillStopLoss(key, tick, stopLossZeroForOne, swapAmounts);
-                }
-                unchecked {
-                    tick += key.tickSpacing;
-                }
-            }
+            // price of currency1 went up
+            // therefore, fill stop losses for currency0-sells (zeroForOne positions)
+            tick = getTickCeil(prevTick, key.tickSpacing);
+            endTick = getTickFloor(currentTick, key.tickSpacing);
+            fillZeroForOne = true;
         } else {
-            for (; currentTick < tick;) {
-                swapAmounts = stopLossPositions[key.toId()][tick][stopLossZeroForOne];
-                if (swapAmounts > 0) {
-                    fillStopLoss(key, tick, stopLossZeroForOne, swapAmounts);
-                }
-                unchecked {
+            // price of currency1 went down
+            // therefore, fill stop losses for currency1-sells (non-zeroForOne positions)
+            tick = getTickFloor(currentTick, key.tickSpacing);
+            endTick = getTickCeil(prevTick, key.tickSpacing);
+            fillZeroForOne = false;
+        }
+
+        int256 swapAmounts; // avoid initializing within loop
+        while (tick != endTick) {
+            swapAmounts = stopLossPositions[key.toId()][tick][fillZeroForOne];
+            if (swapAmounts > 0) {
+                fillStopLoss(key, tick, fillZeroForOne, swapAmounts);
+            }
+            unchecked {
+                if (fillZeroForOne) {
+                    tick += key.tickSpacing;
+                } else {
                     tick -= key.tickSpacing;
                 }
             }
@@ -119,7 +127,6 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
             amountSpecified: swapAmount,
             sqrtPriceLimitX96: zeroForOne ? MIN_PRICE_LIMIT : MAX_PRICE_LIMIT
         });
-        // TODO: may need a way to halt to prevent perpetual stop loss triggers
         BalanceDelta delta = UniV4UserHook.swap(poolKey, stopLossSwapParams, address(this));
         stopLossPositions[poolKey.toId()][triggerTick][zeroForOne] -= swapAmount;
 
@@ -140,7 +147,7 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
     {
         // round down according to tickSpacing
         // TODO: should we round up depending on direction of the position?
-        tick = getTickLower(tickLower, poolKey.tickSpacing);
+        tick = getTickFloor(tickLower, poolKey.tickSpacing);
         // TODO: safe casting
         stopLossPositions[poolKey.toId()][tick][zeroForOne] += int256(amountIn);
 
@@ -202,9 +209,33 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         tickLowerLasts[poolId] = tickLower;
     }
 
-    function getTickLower(int24 tick, int24 tickSpacing) private pure returns (int24) {
+    function getTickFloor(int24 tick, int24 tickSpacing) private pure returns (int24) {
         int24 compressed = tick / tickSpacing;
         if (tick < 0 && tick % tickSpacing != 0) compressed--; // round towards negative infinity
         return compressed * tickSpacing;
+    }
+
+    function getTickCeil(int24 tick, int24 tickSpacing) private pure returns (int24) {
+        int24 compressed = tick / tickSpacing;
+        if (tick > 0 && tick % tickSpacing != 0) compressed++; // round towards positive infinity
+        return compressed * tickSpacing;
+    }
+
+    function latestTwapTick(IPoolManager.PoolKey memory key) internal view returns (int24) {
+        uint32[] memory secondsAgo = new uint32[](2);
+        secondsAgo[0] = 60;
+        secondsAgo[1] = 0;
+        (int56[] memory tickCumulatives,) = oracleHook.observe(
+            IPoolManager.PoolKey({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                fee: 0,
+                tickSpacing: poolManager.MAX_TICK_SPACING(),
+                hooks: IHooks(address(oracleHook))
+            }),
+            secondsAgo
+        );
+        int56 tickDiff = tickCumulatives[1] - tickCumulatives[0];
+        return int24(tickDiff / 60);
     }
 }

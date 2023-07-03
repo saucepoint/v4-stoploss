@@ -46,7 +46,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
     bytes32 poolId;
 
     function setUp() public {
-        uint256 amt = 2**128;
+        uint256 amt = 2 ** 128;
         _tokenA = new TestERC20(amt);
         _tokenB = new TestERC20(amt);
 
@@ -73,8 +73,13 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         poolId = PoolId.toId(poolKey);
         manager.initialize(poolKey, SQRT_RATIO_1_1);
 
-        oracleKey =
-            IPoolManager.PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 0, manager.MAX_TICK_SPACING(), IHooks(oracle));
+        oracleKey = IPoolManager.PoolKey(
+            Currency.wrap(address(token0)),
+            Currency.wrap(address(token1)),
+            0,
+            manager.MAX_TICK_SPACING(),
+            IHooks(oracle)
+        );
         manager.initialize(oracleKey, SQRT_RATIO_1_1);
 
         // Helpers for interacting with the pool
@@ -91,7 +96,12 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         );
 
         modifyPositionRouter.modifyPosition(
-            oracleKey, IPoolManager.ModifyPositionParams(TickMath.minUsableTick(manager.MAX_TICK_SPACING()), TickMath.maxUsableTick(manager.MAX_TICK_SPACING()), 50 ether)
+            oracleKey,
+            IPoolManager.ModifyPositionParams(
+                TickMath.minUsableTick(manager.MAX_TICK_SPACING()),
+                TickMath.maxUsableTick(manager.MAX_TICK_SPACING()),
+                50 ether
+            )
         );
 
         // Approve for swapping
@@ -169,46 +179,7 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         assertEq(token1.balanceOf(address(hook)), 0); // redeemed it all
     }
 
-    function test_foo() public {
-        uint32[] memory secondsAgo = new uint32[](2);
-        secondsAgo[0] = 8;
-        secondsAgo[1] = 0;
-
-        int24 currentTick;
-
-        // create some trades to populate oracle
-        (,currentTick,) = manager.getSlot0(oracleKey.toId());
-        console2.log(int256(currentTick));
-        swap(oracleKey, 10e18, true);
-        (,currentTick,) = manager.getSlot0(oracleKey.toId());
-        console2.log(int256(currentTick));
-        
-        oracle.setTime(oracle.time() + 10);
-        swap(oracleKey, 2e18, true);
-        
-        oracle.setTime(oracle.time() + 10);
-        log_oracle(secondsAgo);
-
-        (,currentTick,) = manager.getSlot0(oracleKey.toId());
-        console2.log(int256(currentTick));
-    }
-
-    function log_oracle(uint32[] memory secondsAgo) internal view {
-        (int56[] memory tickCumulatives,) = oracle.observe(oracleKey, secondsAgo);
-        int56 tickDiff = tickCumulatives[1] - tickCumulatives[0];
-        int56 tickAvg = tickDiff / 8;
-        console2.log(int256(tickAvg));
-    }
-
     function test_stoploss_oracle_zeroForOne() public {
-        // create some trades to populate oracle
-        swap(oracleKey, 1e18, true);
-        
-        swap(oracleKey, 1e18, false);
-        vm.warp(block.timestamp + 20);
-        swap(oracleKey, 1e18, true);
-        vm.warp(block.timestamp + 25);
-
         // place a stop loss at tick 100
         int24 tick = 100;
         uint256 amount = 10e18;
@@ -216,7 +187,11 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
         token0.approve(address(hook), amount);
         int24 actualTick = hook.placeStopLoss(poolKey, tick, amount, zeroForOne);
 
-        // TODO: assert that the TWAP tick is below the threshold tick
+        // move the twap past 100 by swapping zeroForOne (buy currency1)
+        swap(oracleKey, 2e18, false);
+        oracle.setTime(oracle.time() + 60);
+        int24 twapTick = observeMinuteTwap();
+        assertEq(100 < twapTick, true);
 
         // perform a swap for stop loss execution
         swap(poolKey, 100 wei, false);
@@ -265,6 +240,15 @@ contract StopLossTest is Test, Deployers, GasSnapshot {
                 vm.store(_hook, slot, vm.load(address(_implementation), slot));
             }
         }
+    }
+
+    function observeMinuteTwap() internal view returns (int24) {
+        uint32[] memory secondsAgo = new uint32[](2);
+        secondsAgo[0] = 60;
+        secondsAgo[1] = 0;
+        (int56[] memory tickCumulatives,) = oracle.observe(oracleKey, secondsAgo);
+        int56 tickDiff = tickCumulatives[1] - tickCumulatives[0];
+        return int24(tickDiff / 60);
     }
 
     // -- Allow the test contract to receive ERC1155 tokens -- //
