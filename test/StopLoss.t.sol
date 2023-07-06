@@ -2,8 +2,6 @@
 pragma solidity ^0.8.15;
 
 import "forge-std/Test.sol";
-import {GasSnapshot} from "forge-gas-snapshot/GasSnapshot.sol";
-import {TestERC20} from "@uniswap/v4-core/contracts/test/TestERC20.sol";
 import {TickMath} from "@uniswap/v4-core/contracts/libraries/TickMath.sol";
 import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.sol";
 import {PoolId} from "@uniswap/v4-core/contracts/libraries/PoolId.sol";
@@ -48,6 +46,15 @@ contract StopLossTest is StopLossTestBase {
         assertEq(tokenId != 0, true);
         uint256 receiptBal = hook.balanceOf(address(this), tokenId);
         assertEq(receiptBal, amount);
+    }
+
+    // TODO: make sure the oracle and hook init is synced (tick state)
+    function testOracleInit() public {
+        // populate the oracle
+        swap(oracleKey, 2e18, false);
+        oracle.setTime(oracle.time() + 60);
+
+        swap(poolKey, 1e18, false);
     }
 
     function test_stoploss_oracle_zeroForOne() public {

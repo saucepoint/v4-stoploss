@@ -102,11 +102,13 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
         }
 
         int256 swapAmounts; // avoid initializing within loop
-        while (tick != endTick) {
-            swapAmounts = stopLossPositions[key.toId()][tick][fillZeroForOne];
-            if (swapAmounts > 0) {
-                fillStopLoss(key, tick, fillZeroForOne, swapAmounts);
-            }
+        while (true) {
+            // fill orders in either direction
+            swapAmounts = stopLossPositions[key.toId()][tick][true];
+            if (swapAmounts > 0) fillStopLoss(key, tick, true, swapAmounts);
+            swapAmounts = stopLossPositions[key.toId()][tick][false];
+            if (swapAmounts > 0) fillStopLoss(key, tick, false, swapAmounts);
+
             unchecked {
                 if (fillZeroForOne) {
                     tick += key.tickSpacing;
@@ -114,6 +116,8 @@ contract StopLoss is UniV4UserHook, ERC1155, Test {
                     tick -= key.tickSpacing;
                 }
             }
+            if (fillZeroForOne && endTick <= tick) break;
+            if (!fillZeroForOne && tick <= endTick) break;
         }
         return StopLoss.afterSwap.selector;
     }
