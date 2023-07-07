@@ -24,7 +24,7 @@ contract SparkTest is StopLossTestBase {
     IERC20 WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     function setUp() public {
-        initBase();
+        StopLossTestBase.initBase();
 
         // Create a V4 pool ETH/DAI at price 1700 DAI/ETH
         initPool();
