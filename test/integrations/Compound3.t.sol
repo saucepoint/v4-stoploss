@@ -2,47 +2,33 @@
 pragma solidity ^0.8.15;
 
 import "forge-std/Test.sol";
-import {GasSnapshot} from "forge-gas-snapshot/GasSnapshot.sol";
-import {TestERC20} from "@uniswap/v4-core/contracts/test/TestERC20.sol";
-import {IERC20Minimal} from "@uniswap/v4-core/contracts/interfaces/external/IERC20Minimal.sol";
-import {IHooks} from "@uniswap/v4-core/contracts/interfaces/IHooks.sol";
-import {Hooks} from "@uniswap/v4-core/contracts/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/contracts/libraries/TickMath.sol";
-import {PoolManager} from "@uniswap/v4-core/contracts/PoolManager.sol";
+import {IHooks} from "@uniswap/v4-core/contracts/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/contracts/interfaces/IPoolManager.sol";
 import {PoolId} from "@uniswap/v4-core/contracts/libraries/PoolId.sol";
-import {PoolModifyPositionTest} from "@uniswap/v4-core/contracts/test/PoolModifyPositionTest.sol";
-import {PoolSwapTest} from "@uniswap/v4-core/contracts/test/PoolSwapTest.sol";
-import {PoolDonateTest} from "@uniswap/v4-core/contracts/test/PoolDonateTest.sol";
-import {Deployers} from "@uniswap/v4-core/test/foundry-tests/utils/Deployers.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/contracts/libraries/CurrencyLibrary.sol";
-import {StopLoss} from "../../src/StopLoss.sol";
-import {StopLossImplementation} from "../../src/implementation/StopLossImplementation.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/contracts/test/PoolSwapTest.sol";
+
+import {StopLossTestBase} from "../shared/StopLossTestBase.t.sol";
+import {IPool as ISparkPool} from "aave-v3-core/contracts/interfaces/IPool.sol";
 import {ICometMinimal} from "./interfaces/ICometMinimal.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-contract Compound3Test is Test, Deployers, GasSnapshot {
+contract Compound3Test is StopLossTestBase {
     using PoolId for IPoolManager.PoolKey;
     using CurrencyLibrary for Currency;
 
-    StopLoss hook = StopLoss(address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG)));
-    PoolManager manager;
-    PoolModifyPositionTest modifyPositionRouter;
-    PoolSwapTest swapRouter;
-    TestERC20 _tokenA;
-    TestERC20 _tokenB;
-    TestERC20 token0;
-    TestERC20 token1;
-    IPoolManager.PoolKey poolKey;
-    bytes32 poolId;
+    // see StopLossTestBase for additional "globals"
 
     ICometMinimal comet;
     IERC20 USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     IERC20 WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     function setUp() public {
+        StopLossTestBase.initBase();
+
         // Create a V4 pool ETH/USDC at price 1700 USDC/ETH
-        initV4();
+        initPool();
 
         // Use 1 ETH to borrow 1500 USDC
         initComet();
@@ -99,22 +85,7 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
     }
 
     // -- Helpers -- //
-    function initV4() internal {
-        manager = new PoolManager(500000);
-
-        // testing environment requires our contract to override `validateHookAddress`
-        // well do that via the Implementation contract to avoid deploying the override with the production contract
-        StopLossImplementation impl = new StopLossImplementation(manager, hook);
-        (, bytes32[] memory writes) = vm.accesses(address(impl));
-        vm.etch(address(hook), address(impl).code);
-        // for each storage key that was written during the hook implementation, copy the value over
-        unchecked {
-            for (uint256 i = 0; i < writes.length; i++) {
-                bytes32 slot = writes[i];
-                vm.store(address(hook), slot, vm.load(address(impl), slot));
-            }
-        }
-
+    function initPool() internal {
         // Create the pool: USDC/ETH
         poolKey =
             IPoolManager.PoolKey(Currency.wrap(address(USDC)), Currency.wrap(address(WETH)), 3000, 60, IHooks(hook));
@@ -124,9 +95,11 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         uint160 sqrtPriceX96 = 1921565191587726726404356176259791;
         manager.initialize(poolKey, sqrtPriceX96);
 
-        // Helpers for interacting with the pool
-        modifyPositionRouter = new PoolModifyPositionTest(IPoolManager(address(manager)));
-        swapRouter = new PoolSwapTest(IPoolManager(address(manager)));
+        // create oracle pool
+        oracleKey = IPoolManager.PoolKey(
+            Currency.wrap(address(USDC)), Currency.wrap(address(WETH)), 0, manager.MAX_TICK_SPACING(), IHooks(oracle)
+        );
+        manager.initialize(oracleKey, sqrtPriceX96);
 
         // Provide liquidity to the pool
         uint256 usdcAmount = 170_000e6;
@@ -146,9 +119,27 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
         int256 liquidity = 0.325e17;
         modifyPositionRouter.modifyPosition(poolKey, IPoolManager.ModifyPositionParams(lowerTick, upperTick, liquidity));
 
+        usdcAmount = 1_000_000e6;
+        wethAmount = 250e18;
+        deal(address(USDC), address(this), usdcAmount);
+        USDC.approve(address(modifyPositionRouter), usdcAmount);
+        deal(address(WETH), address(this), wethAmount);
+        WETH.approve(address(modifyPositionRouter), wethAmount);
+        modifyPositionRouter.modifyPosition(
+            oracleKey,
+            IPoolManager.ModifyPositionParams(
+                TickMath.minUsableTick(manager.MAX_TICK_SPACING()),
+                TickMath.maxUsableTick(manager.MAX_TICK_SPACING()),
+                10_000e12
+            )
+        );
+
         // Approve for swapping
         USDC.approve(address(swapRouter), 2 ** 128);
         WETH.approve(address(swapRouter), 2 ** 128);
+
+        swap(oracleKey, 100 wei, false);
+        oracle.setTime(oracle.time() + 60);
 
         // clear out delt tokens
         deal(address(USDC), address(this), 0);
@@ -173,41 +164,14 @@ contract Compound3Test is Test, Deployers, GasSnapshot {
     // Execute trades to force stop loss execution to occur
     function forceStopLoss() internal {
         // Dump ETH past the tick trigger
-        uint256 wethAmount = 20e18;
+        uint256 wethAmount = 50e18;
         deal(address(WETH), address(this), wethAmount);
-        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: false,
-            amountSpecified: int256(wethAmount),
-            sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
-        });
+        swap(oracleKey, int256(wethAmount), false);
+        oracle.setTime(oracle.time() + 3000);
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({withdrawTokens: true, settleUsingTransfer: true});
-
-        swapRouter.swap(poolKey, params, testSettings);
-
-        // Swap in the opposite direction of the trigger (trigger was sell ETH for USDC, zeroForOne = false)
-        uint256 usdcAmount = 5000e6;
+        // perform a swap for stop loss execution
+        uint256 usdcAmount = 100 wei;
         deal(address(USDC), address(this), usdcAmount);
-
-        params.zeroForOne = true;
-        params.amountSpecified = int256(usdcAmount);
-        params.sqrtPriceLimitX96 = TickMath.MIN_SQRT_RATIO + 1;
-        swapRouter.swap(poolKey, params, testSettings);
-    }
-
-    // -- Allow the test contract to receive ERC1155 tokens -- //
-    receive() external payable {}
-
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
-        return bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"));
-    }
-
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
-        return bytes4(keccak256("onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)"));
+        swap(poolKey, int256(usdcAmount), true);
     }
 }
